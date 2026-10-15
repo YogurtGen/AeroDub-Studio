@@ -1,0 +1,82 @@
+const { _electron } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const media = require('../src/media');
+const root = path.resolve(__dirname, '..'), output = path.join(root, 'test-output/smart-dub-ui');
+const source = path.join(root, 'test-output/speakers/conversation.mp4');
+(async () => {
+  await fs.mkdir(output, { recursive: true });
+  try { await fs.access(source); } catch { await promisify(execFile)('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'speaker-fixture.ps1'), '-Ffmpeg', media.ffmpeg], { windowsHide: true }); }
+  const expected = await Promise.all([0, 1].map(index => media.probe(path.join(root, `test-output/speakers/trim-${index}.wav`))));
+  const userData = path.join(output, `profile-${Date.now()}`), executable = process.env.AERODUB_TEST_EXE;
+  const app = await _electron.launch({ executablePath: executable || undefined, cwd: root, args: [...(executable ? [] : ['.']), '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${path.join(root, 'test-output/media/mic.wav')}`], env: { ...process.env, AERODUB_TEST_USER_DATA: userData } });
+  const page = await app.firstWindow(), errors = [];
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.webContents.setBackgroundThrottling(false); window.webContents.setAudioMuted(true); window.setOpacity(0); window.setIgnoreMouseEvents(true); window.setFocusable(false); window.setSkipTaskbar(true); });
+  page.on('pageerror', error => errors.push(error.message));
+  const idle = () => page.waitForFunction(() => !busy && !recording && !saving, {}, { timeout: 60000 });
+  async function listen() {
+    await page.click('#check-take'); await idle();
+    await page.waitForFunction(() => auditionStart !== null && !$('video').paused && !audition.paused && $('video').currentTime > Math.max(0, auditionStart) + .2);
+    assert.equal(await page.evaluate(() => audio.paused), true);
+    assert.ok(await page.evaluate(() => Math.abs(audition.currentTime - ($('video').currentTime - auditionStart))) < .15);
+    assert.equal(await page.evaluate(() => $('video').muted), true);
+    await page.waitForFunction(() => $('video').paused && audition.paused);
+  }
+  try {
+    await page.waitForFunction(() => musicReady);
+    await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, source);
+    await page.click('#upload'); await idle();
+    assert.equal(await page.evaluate(() => Boolean(project.speakerAnalysis)), false, 'Speaker processing waits for Dubbing mode');
+    await page.evaluate(() => { window.speakerJobs = 0; api.onProgress(data => { if (data?.stage === 'detectSpeakers' && data.value === 0) window.speakerJobs++; }); });
+    await page.click('#start-dubbing'); await idle();
+    const data = await page.evaluate(() => project);
+    assert.equal(data.speakerAnalysis.version,3); assert.ok(data.speakerAnalysis.changes.length>=2);
+    assert.equal(data.speakerAnalysis.speakerCount, 2);
+    for (const boundary of [expected[0].duration, expected[0].duration + expected[1].duration]) assert.ok(data.parts.some(part => Math.abs(part.end - boundary) < .15), 'Adjacent different voices must create a part boundary');
+    assert.ok(data.parts.some(part => part.speakers.includes(1)) && data.parts.some(part => part.speakers.includes(2)));
+    const jobs = await page.evaluate(() => window.speakerJobs); assert.ok(jobs >= 1);
+    await page.locator('.cut-settings summary').click(); await page.selectOption('#padding', '3'); await page.click('#divide'); await idle();
+    assert.equal(await page.evaluate(() => window.speakerJobs), jobs, 'Padding reuses saved speaker analysis');
+    await page.selectOption('#padding', '1.5'); await page.click('#divide'); await idle(); await page.locator('.cut-settings summary').click();
+    const count = await page.locator('.part-button').count();
+    await page.locator('#cut-editor summary').click(); await page.fill('#seek', '1'); await page.locator('#seek').dispatchEvent('input'); await page.click('#cut-split'); await idle();
+    assert.equal(await page.locator('.part-button').count(), count + 1);
+    await page.click('#cut-merge'); await idle(); assert.equal(await page.locator('.part-button').count(), count);
+    await page.fill('#cut-start', '0.01'); await page.click('#cut-save'); await idle(); assert.equal(await page.evaluate(() => project.parts[0].start), .01);
+    await page.fill('#cut-start', '0'); await page.click('#cut-save'); await idle(); await page.locator('#cut-editor summary').click();
+    await page.click('#settings-toggle');await page.fill('#voice-pitch','12');await page.locator('#voice-pitch').dispatchEvent('input');await page.locator('#voice-pitch').dispatchEvent('change');await page.keyboard.press('Escape');
+    await page.locator('.part-button').nth(2).click(); await idle();
+    await page.click('#record'); await page.waitForFunction(() => project.takes.length === 1 && !recording && !saving && !busy, {}, { timeout: 20000 });
+    assert.equal(await page.evaluate(()=>project.takes[0].voice.pitch),12);
+    const capture=path.join(userData,'projects',data.id,'takes',await page.evaluate(()=>project.takes[0].id),'raw.wav');
+    const energy = async frequency => { const bytes=await media.run(media.ffmpeg,['-v','error','-ss','0.5','-i',capture,'-t','0.5','-af',`bandpass=f=${frequency}:t=h:w=400`,'-ac','1','-f','f32le','pipe:1']);let sum=0;for(let i=0;i<bytes.length;i+=4)sum+=bytes.readFloatLE(i)**2;return sum; };
+    assert.ok(await energy(2400)>await energy(1200)*5,'Universal pitch must be baked into the dubbing take');
+    await listen();
+    await page.locator('#takes-details summary').click();
+    const inputs = page.locator('.take-controls input[type=number]');
+    await inputs.nth(0).fill('250'); await inputs.nth(0).press('Tab');
+    await inputs.nth(1).fill('0.1'); await inputs.nth(1).press('Tab');
+    await page.evaluate(() => pendingSave); await page.locator('#takes-details summary').click();
+    await listen();
+    await page.screenshot({ path: path.join(output, 'speakers-and-take.png'), fullPage: true });
+    const cuts = await page.evaluate(() => JSON.stringify(project.parts)), id = data.id;
+    const recut = await page.evaluate(async () => { try { await api.divideParts({ padding: 2 }); return 'unexpected'; } catch (error) { return error.message; } });
+    assert.equal(recut, 'PARTS_HAVE_TAKES'); assert.equal(await page.evaluate(() => JSON.stringify(project.parts)), cuts);
+    await page.click('#home'); await idle(); await page.click('#projects-toggle'); await page.locator(`[data-project-id="${id}"] .project-open`).click(); await idle();
+    assert.equal(await page.evaluate(() => JSON.stringify(project.parts)), cuts); assert.equal(await page.evaluate(() => project.speakerAnalysis.speakerCount), 2);
+    await page.locator('.part-button').nth(2).click(); await idle();
+    await page.click('#check-take'); await idle(); await page.waitForFunction(() => !$('video').paused); await page.click('#play'); await idle();
+    assert.equal(await page.evaluate(() => audition.paused && $('video').paused), true);
+    const waveform = page.locator('#seek'); await waveform.fill('0.5'); await waveform.dispatchEvent('input');
+    await page.locator('.part-button').first().click(); await idle(); await page.locator('.part-button').nth(2).click(); await idle();
+    await listen();
+    await page.locator('#takes-details summary').click(); await inputs.nth(0).fill('-7400'); await inputs.nth(0).press('Tab'); await page.evaluate(() => pendingSave); await page.locator('#takes-details summary').click();
+    await listen();
+    assert.deepEqual(errors, []);
+    console.log('SMART DUB UI PASS: actual local A/B/A detection and consensus, speaker labels, cached padding, manual trim/split/merge, automatic capture with actual octave pitch shift, synchronized take/video with trim+offset, joint end/pause, recording-safe cuts and reopen.');
+  } catch (error) { console.log('SMART DUB FAILURE:', await page.locator('#status').textContent(), errors); await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {}); throw error; }
+  finally { await app.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
