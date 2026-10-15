@@ -1,0 +1,26 @@
+{
+  "separator": "htdemucs_ft vocal specialist 04573f0d",
+  "separatorSHA256": "f3cf25b222c4eed7cd49dd8b2c9597d50c18bd154090f7b919cfa5f93cf22c49",
+  "transcriber": "Systran/faster-whisper-large-v3",
+  "transcriberRevision": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+  "packages": {
+    "torch": "2.6.0+cu124",
+    "torchaudio": "2.6.0+cu124",
+    "demucs": "4.0.1",
+    "faster-whisper": "1.2.1",
+    "ctranslate2": "4.6.0",
+    "soundfile": "0.13.1",
+    "numpy": "1.26.4"
+  },
+  "transcriberSHA256": "69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1",
+  "diarization": {
+    "cutAlgorithmVersion": 3,
+    "cutAlgorithm": "speech cores, overlap transitions and three-window local change consensus",
+    "clusteringThreshold": 0.33,
+    "embedding": "wespeaker_en_voxceleb_resnet34_LM.onnx",
+    "segmentationSHA256": "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
+    "segmentation": "pyannote segmentation-3.0",
+    "engine": "sherpa-onnx 1.13.8",
+    "embeddingSHA256": "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012"
+  }
+}

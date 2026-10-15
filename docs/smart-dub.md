@@ -1,0 +1,35 @@
+# Smart dub 0.4.0
+
+The owner asks for part boundaries at changes of voice, in addition to quiet gaps, and video playback during Listen to your take.
+
+## Processing
+
+On Start dubbing, unrecorded video projects run local offline diarization through sherpa-onnx 1.13.8, pyannote segmentation-3.0 and WeSpeaker ResNet34-LM embeddings. Four CPU threads, 10% segmentation window shift, automatic clustering threshold 0.33 and 0.3s minimum on/off intervals. Input is a temporary 16kHz mono conversion of the cached reference. Progress/cancellation reuse the existing job process; temporary analysis files are removed. Completed speaker turns and labels are saved in project metadata and reused for padding changes/reopen.
+
+Version 3 of the cutting algorithm sweeps the detected speaker turns into speech cores. Background music no longer fills the space between detected utterances. The active set of voices defines each core: solo A, overlap A+B, solo B become separate sections, so an overlap no longer hides the following speaker change. Same-speaker pauses up to 1.2 seconds can merge, within a 12-second combined span. A single longer detected utterance remains whole; there is no equal-length split through speech. Context padding is capped at adjacent boundaries and file edges.
+
+An additional local pass runs the same segmentation model on 10-second windows with a one-second hop. High-confidence single-speaker transitions need agreement from at least three windows within 200ms. These local boundaries can recover transitions that global voice embedding clustering merged, or refine the midpoint of a quiet gap. A recovered split within one globally labelled voice is marked Check this cut. Numeric labels still describe detected groups, not named people. Actual simultaneous voices remain together in their overlap section. Model silence/false negatives can still omit speech; the manual cut controls are available before recording. If no speech turns are found, the older quiet-gap/12-second energy fallback remains available.
+
+Adjust this part edits start/end, splits at the video playhead or joins the next part, with bounded non-overlapping times and a minimum part length. Applying automatic cuts replaces these edits. No cuts can be modified once any take exists. Unrecorded legacy analysis refreshes on entering Dubbing mode; version 3 results and local consensus are cached for subsequent padding changes/reopen. Both Python modules are unpacked for the folder build.
+
+Cuts are protected once recordings exist. Existing recorded projects continue to play at their saved positions; a new import applies the new cuts to that source. Cancellation does not assign partial analysis or mutate the previous padding/parts.
+
+Listen to your take generates audio with the same cleanup, trim and boosted gain as before, seeks the video to take.start + offset, and plays the muted video alongside it. A take shifted before time zero skips the corresponding leading audio. The video clock corrects preview drift above 90ms; both stop at the take/video boundary or Pause. Original reference audio remains paused. Seeking after reopen waits for metadata, avoiding a timeout when the first part begins at zero.
+
+## Models and attribution
+
+- Engine: https://github.com/k2-fsa/sherpa-onnx , Apache-2.0, version 1.13.8. API reference: https://github.com/k2-fsa/sherpa-onnx/blob/master/python-api-examples/offline-speaker-diarization.py .
+- Segmentation: https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2 . `model.onnx` SHA256: `220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079`. Model/LICENSE/README are kept under ai-runtime/models/speakers/sherpa-onnx-pyannote-segmentation-3-0. The converted model is MIT, Copyright CNRS.
+- Embedding: https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34_LM.onnx . SHA256: `e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012`. Attribution: WeSpeaker project, official model card https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM , CC BY 4.0. Model card and complete license text accompany the weights. Sherpa adds ONNX metadata as documented in its scripts/wespeaker/run.sh; AeroDub does not retrain/alter weights.
+
+For a fresh build machine, install sherpa-onnx==1.13.8 into the standalone Python runtime, download these official files to the paths above, retain licenses/card and add the hashes/settings to models/manifest.json. The prepared workspace and folder build already include them. Download archives are excluded from the app build. Requirements and manifest snapshots: ai-requirements-lock.txt and ai-model-manifest.json.
+
+## Verification
+
+The original Windows SAPI David/Zira/David fixture repeats the same words with two voices, including direct changes without a long quiet gap. Actual diarization detects two groups; smart parts have boundaries within 150ms of both known changes. The new local pass also votes for both transitions (4 and 7 independent windows). A unit control deliberately merges all global IDs and verifies that the local votes still produce three sections. Labels return to the original voice on the third section. A previous official four-speaker Chinese control yielded four groups at this threshold. These controls validate function and a limited calibration, not general speaker accuracy.
+
+The owner's 87.3-second Grand Blue project was copied read-only into test-output/accuracy. The owner reports parts 1–4 correct. New cuts retain the same first four voice groups (1,2,3,1), with small midpoint refinements and removal of trailing non-speech. The previous 21 parts become 26. The old equal cut near 68.33 seconds through detected speech from 66.92–71.46 is removed. The overlap around 43.85–44.80 and subsequent solo groups now separate. Longer music-only gaps are skipped. This comparison demonstrates concrete boundary changes; parts after the first four do not have complete human ground-truth annotation. Original project files/takes were never edited by this check. Diagnostic JSON files are local test artifacts and are excluded from the app.
+
+Ten backend tests include speech-only cores, local consensus, overlaps, quiet context, actual voice effects and media export checks. The smart-dub UI checks actual analysis/consensus, cached recuts, manual timing/split/join, browser capture with a measured octave shift, synchronized audition, trim/positive/negative shift, end/pause, recorded-cut protection and reopen. The retained seven-tone UI regression explicitly uses an empty speech-analysis cache to test the energy fallback, independently of the actual speech-model test. Each harness uses an isolated profile and an invisible noninteractive window. Packaged results are recorded in release-status.md.
+
+Similar voices, effects, very short turns, overlap and music can still confuse diarization. No physical actor/video lip-sync session has been measured.
