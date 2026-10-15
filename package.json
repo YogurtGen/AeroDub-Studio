@@ -1,0 +1,81 @@
+{
+  "name": "aerodub-studio",
+  "version": "0.5.2",
+  "description": "Local video dubbing, music stems and timed-lyrics singing studio",
+  "main": "src/main.js",
+  "author": "AeroDub Studio",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/media.test.js tests/music.test.js tests/voice.test.js tests/timeline.test.js tests/timeline-media.test.js tests/clip-audio.test.js tests/song-timing.test.js",
+    "test:sing-sync": "node tests/sing-sync-ui.js",
+    "test:readings": "node --test tests/readings.test.js",
+    "test:readings-ui": "node tests/readings-ui.js",
+    "test:ui": "node tests/ui-smoke.js",
+    "test:music-ui": "node tests/music-ui.js",
+    "test:smart-dub": "node tests/smart-dub-ui.js",
+    "test:voice": "node tests/voice-ui.js",
+    "test:pro": "node tests/pro-ui.js",
+    "test:package": "node tests/verify-package.js",
+    "test:installer": "node --test tests/installer.test.js tests/publish-release.test.js",
+    "build:icon": "electron scripts/build-icon.js",
+    "build:win": "electron-builder --win dir --x64",
+    "build:setup": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-setup.ps1",
+    "release:github": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/publish-release.ps1"
+  },
+  "dependencies": {
+    "ffmpeg-static": "5.3.0",
+    "ffprobe-static": "3.1.0"
+  },
+  "devDependencies": {
+    "@soundtouchjs/audio-worklet": "2.1.1",
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "playwright": "1.64.0"
+  },
+  "build": {
+    "appId": "studio.aerodub.desktop",
+    "productName": "AeroDub Studio",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "THIRD_PARTY_NOTICES.md",
+      "LICENSE",
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/ffprobe-static/**/*",
+      "!node_modules/ffprobe-static/bin/darwin/**/*",
+      "!node_modules/ffprobe-static/bin/linux/**/*",
+      "!node_modules/ffprobe-static/bin/win32/ia32/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/ffprobe-static/**/*",
+      "src/**/*.py"
+    ],
+    "extraResources": [
+      {
+        "from": "ai-runtime",
+        "to": "ai-runtime",
+        "filter": [
+          "**/*",
+          "!cache/**/*",
+          "!**/.cache/**/*",
+          "!**/__pycache__/**/*",
+          "!**/*.pyc",
+          "!Lib/test/**/*",
+          "!Lib/site-packages/pip/**/*",
+          "!Scripts/**/*",
+          "!models/speakers/*.tar.bz2"
+        ]
+      }
+    ],
+    "win": {
+      "target": "dir",
+      "icon": "src/renderer/app-icon.ico",
+      "signExecutable": false
+    }
+  }
+}
